@@ -1,0 +1,188 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Aug 17 09:44:44 2019
+
+@author: yuan
+"""
+
+import os
+import json
+from collections import OrderedDict
+import cv2
+import base64
+import io
+import PIL
+import numpy as np
+
+def img_b64_to_arr(img_b64):
+    f = io.BytesIO()
+    f.write(base64.b64decode(img_b64))
+    img_arr = np.array(PIL.Image.open(f))
+    return img_arr
+
+
+def img_arr_to_b64(img_arr):
+    
+    img_pil = PIL.Image.fromarray(img_arr)
+    f = io.BytesIO()
+    img_pil.save(f, format='PNG')
+    img_bin = f.getvalue()
+    if hasattr(base64, 'encodebytes'):
+        img_b64 = base64.encodebytes(img_bin)
+    else:
+        img_b64 = base64.encodestring(img_bin)
+    return img_b64.decode('utf-8')
+
+
+def readJson(filePath):
+    
+    with open(filePath,'r') as fn:
+        data=json.load(fn)   
+    return data
+
+def write_json(filePath,data):
+    with open(filePath,'w') as fn:
+        json.dump(data,fn,ensure_ascii=False, indent=2)
+
+def addImage(img1, img2):
+    
+
+    #alpha，beta，gamma可调
+    alpha = 0.7
+    beta = 1-alpha
+    gamma = 0
+    img_add = cv2.addWeighted(img1, alpha, img2, beta, gamma)
+
+    return img_add
+
+def get_recangle(data):
+    
+    points_data=[]
+    flag=0
+    for shape in data['shapes']:
+        if shape['shape_type']=='rectangle':
+            points=[]
+            if len(shape['points'])==2:
+                for i in shape['points']:
+                    for j in i:
+                        points.append(int(float(j)))
+            if len(shape['points'])==4:
+                for i in shape['points']:
+                    if flag%2==0:
+                        for j in i:
+                            points.append(int(float(j)))
+                    flag+=1
+    
+            points_data.append(points)   
+
+    return points_data
+def cropImage(img,imgTemplate,data):
+    point_list=get_recangle(data)
+    for points in point_list:
+        imgTemplate[points[1]:points[3],points[0]:points[2]]=img[points[1]:points[3],points[0]:points[2]]
+#    print(point_list)
+    
+    return imgTemplate
+def crossEnhance(imgJsonDir,templateImgDir):
+
+    imgJsonDirList=os.listdir(imgJsonDir)
+    templateList=os.listdir(templateImgDir)
+    for imgJsonFile in imgJsonDirList:
+        if imgJsonFile.endswith('.json'):
+            jsonFileDir=os.path.join(imgJsonDir,imgJsonFile)
+            print(jsonFileDir)
+            #read json
+            dataJson=readJson(jsonFileDir)
+            print(dataJson.keys())
+
+            
+            dataNew=OrderedDict()
+            for key,value in dataJson.items():
+                if key!='imageData':
+                    dataNew[key]=value
+
+            dataNew['shapes']=[shape for shape in dataJson['shapes'] if shape["shape_type"]=="polygon"] 
+
+            imgDir=os.path.join(imgJsonDir,imgJsonFile.replace('.json','.jpg'))
+            
+            img=cv2.imread(imgDir)
+            h1, w1, _ = img.shape
+                
+            for template in templateList:
+                if template.endswith('.jpg'):
+                    templateDir=os.path.join(templateImgDir,template)
+                    print(templateDir)
+                    imgTemplate=cv2.imread(templateDir)
+                    imgTemplate = cv2.resize(imgTemplate, (w1,h1), interpolation=cv2.INTER_AREA)
+                    img_add=addImage(img,imgTemplate)
+                    imgRGB=cv2.cvtColor(img_add,cv2.cv2.COLOR_BGR2RGB)
+#                    print(imgRGB)
+                    img_b64=img_arr_to_b64(np.array(imgRGB))
+                    print(type(img_b64))
+                    dataNew['imageData']=img_b64
+#                    arr=img_b64_to_arr(img_b64)
+#                    print(arr)
+#                    cv2.namedWindow('addImage')
+#                    cv2.imshow('addImage',img_add)
+#                    cv2.waitKey(0)
+#                    cv2.destroyAllWindows()
+                    saveJsonDir=os.path.join(templateImgDir,imgJsonFile.split('.')[0]+'_'+template.split('.')[0]+'.json')
+                    print(saveJsonDir)
+                    write_json(saveJsonDir,dataNew)   
+
+def crossEnhanceCrop(imgJsonDir,templateImgDir):
+    imgJsonDirList=os.listdir(imgJsonDir)
+    templateList=os.listdir(templateImgDir)
+    for imgJsonFile in imgJsonDirList:
+        if imgJsonFile.endswith('.json'):
+            jsonFileDir=os.path.join(imgJsonDir,imgJsonFile)
+            print(jsonFileDir)
+            #read json
+            dataJson=readJson(jsonFileDir)
+            print(dataJson.keys())
+
+            
+            dataNew=OrderedDict()
+            for key,value in dataJson.items():
+                if key!='imageData':
+                    dataNew[key]=value
+
+            dataNew['shapes']=[shape for shape in dataJson['shapes'] if shape["shape_type"]=="polygon"] 
+
+            imgDir=os.path.join(imgJsonDir,imgJsonFile.replace('.json','.jpg'))
+            
+            img=cv2.imread(imgDir)
+            h1, w1, _ = img.shape
+                
+            for template in templateList:
+                if template.endswith('.jpg'):
+                    templateDir=os.path.join(templateImgDir,template)
+                    print(templateDir)
+                    imgTemplate=cv2.imread(templateDir)
+                    imgTemplate = cv2.resize(imgTemplate, (w1,h1), interpolation=cv2.INTER_AREA)
+                    img_add=cropImage(img,imgTemplate,dataJson)
+                    imgRGB=cv2.cvtColor(img_add,cv2.cv2.COLOR_BGR2RGB)
+#                    print(imgRGB)
+                    img_b64=img_arr_to_b64(np.array(imgRGB))
+                    print(type(img_b64))
+                    dataNew['imageData']=img_b64
+#                    arr=img_b64_to_arr(img_b64)
+#                    print(arr)
+#                    cv2.namedWindow('addImage')
+#                    cv2.imshow('addImage',img_add)
+#                    cv2.waitKey(0)
+#                    cv2.destroyAllWindows()
+                    saveJsonDir=os.path.join(templateImgDir,imgJsonFile.split('.')[0]+'_'+template.split('.')[0]+'.json')
+                    print(saveJsonDir)
+                    write_json(saveJsonDir,dataNew)      
+            
+if __name__=="__main__":
+    #json direction
+    imgJsonDir=r'I:\dianlu\jiexianzhu'
+    #template img direction
+    templateImgDir=r'I:\dianlu\jiexianzhu_moban'
+    #fuse image
+#    crossEnhance(imgJsonDir,templateImgDir)
+    #cut device to another
+    crossEnhanceCrop(imgJsonDir,templateImgDir)
+
